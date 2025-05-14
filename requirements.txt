@@ -1,0 +1,8 @@
+streamlit
+pdfplumber>=0.10.0
+pymupdf>=1.22.0
+pillow>=10.0.0
+google-generativeai>=0.3.0
+python-dotenv
+pandas
+matplotlib
