@@ -145,41 +145,38 @@ def extract_final_thoughts(response):
     except:
         return "Error in final thoughts"
 # ===================================================================================================================================================    
-
 def get_gemini_response(prompt, image_bytes, input_text):
     model = genai.GenerativeModel('gemini-1.5-flash')
-
-    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-
-    image_part = {"mime_type": "image/jpeg", "data": encoded_image}
-
-    response = model.generate_content([image_part, prompt], generation_config=genai.GenerationConfig(temperature=0.0))
+    
+    # Remove this line as image_bytes is already bytes
+    # encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+    
+    # Create the image part directly from the bytes
+    image_part = {
+        "mime_type": "image/jpeg", 
+        "data": image_bytes  # Use the raw bytes directly
+    }
+    
+    response = model.generate_content(
+        [image_part, prompt], 
+        generation_config=genai.GenerationConfig(temperature=0.0)
+    )
     return response.text
-
 def input_pdf_setup(uploaded_file):
     if uploaded_file is not None:
         try:
-            # Get the PDF bytes
-            pdf_bytes = uploaded_file.read()
-            
-            # First try text extraction
-            text = convert_pdf_to_text(pdf_bytes)
-            if text:
-                return text
-                
-            # If text extraction failed, try converting to image for Gemini
-            images = convert_pdf_to_images(pdf_bytes, first_page=1, last_page=1)
-            if images:
-                img_byte_arr = BytesIO()
-                images[0].save(img_byte_arr, format='JPEG')
-                return img_byte_arr.getvalue()
-                
-            return None
-                
+            # Read the file content first
+            file_content = uploaded_file.read()
+            images = pdf2image.convert_from_bytes(file_content)
+            first_page = images[0]
+            img_byte_arr = io.BytesIO()
+            first_page.save(img_byte_arr, format='JPEG')
+            return img_byte_arr.getvalue()  # This returns bytes
         except Exception as e:
-            st.error(f"Error processing PDF: {e}")
+            st.error(f"Error converting PDF to images: {e}")
             return None
-    return None
+    else:
+        return None
 # ============================================================================================================================================================================
 
 def extract_information(response):
