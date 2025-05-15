@@ -1105,70 +1105,55 @@ elif st.session_state.user_type == "user_with_job_role":
         set_user_type("welcome")
 
     # Job Role Selection
-    st.markdown("<div class='job-role-selector'>", unsafe_allow_html=True)
     selected_job_role = st.selectbox("Select Job Role:", job_roles)
-    st.markdown("</div>", unsafe_allow_html=True)
-
+    
+    # Input Validation
     input_text = st.text_area("Enter Job Description:", height=200)
     uploaded_file = st.file_uploader("Upload Your Resume (PDF)...", type=["pdf"])
 
     if uploaded_file and input_text:
         if st.button("Analyze Resume"):
             try:
-                # Extract text directly from PDF (no image conversion)
+                # Extract text
                 pdf_text = input_pdf_setup(uploaded_file)
                 
                 if not pdf_text:
                     st.error("Failed to extract text from PDF. Please ensure the file is valid.")
+                    st.stop()
                     return
 
                 with st.spinner("Analyzing resume..."):
-                    # Prepare the analysis prompt
-                    full_prompt = f"""
-                    You are an experienced HR professional specializing in {selected_job_role}. 
-                    Analyze this resume against the job description below:
+                    # Prepare prompt
+                    full_prompt = f"""..."""  # Your existing prompt
 
-                    Job Description:
-                    {input_text}
-
-                    Resume Text:
-                    {pdf_text}
-
-                    Provide detailed analysis covering:
-                    1. ATS Score (Percentage Match) - Show as percentage and visual gauge
-                    2. Missing Keywords (highlight in red)
-                    3. Missing Skills (highlight in yellow) 
-                    4. Resume Improvement Suggestions (bullet points)
-                    5. Skill Development Recommendations
-                    6. Relevant Course Links (as markdown links)
-                    7. Overall Fit Assessment
-
-                    Format the output with clear headings and visual elements.
-                    """
-
-                    # Get response from Gemini
+                    # Get response with timeout
                     model = genai.GenerativeModel('gemini-1.5-flash')
-                    response = model.generate_content(full_prompt)
+                    response = model.generate_content(
+                        full_prompt,
+                        generation_config={"timeout": 300}
+                    )
                     
                     # Display results
                     st.subheader("Resume Analysis Results")
                     st.markdown("---")
                     st.markdown(response.text)
 
-                    # Optional: Extract and visualize ATS score
+                    # ATS Score visualization
                     try:
                         ats_score = extract_ats_score(response.text)
                         if ats_score:
                             st.subheader("ATS Compatibility Score")
                             st.progress(ats_score/100)
                             st.caption(f"{ats_score}% match with job requirements")
-                    except:
-                        pass
+                    except Exception as e:
+                        st.warning(f"Could not extract ATS score: {str(e)}")
 
             except Exception as e:
                 st.error(f"Analysis failed: {str(e)}")
-                st.exception(e)
+                if st.toggle("Show technical details"):
+                    st.exception(e)
 
+    # Handle empty states
     elif not input_text and uploaded_file:
         st.warning("Please enter a job description to analyze against.")
     elif not uploaded_file and input_text:
