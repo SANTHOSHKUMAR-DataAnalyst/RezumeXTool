@@ -1023,7 +1023,7 @@ elif st.session_state.user_type == "hr":
             
             if not all_results:
                 st.error("No valid results generated")
-                return
+            return
                 
             # Process and display results
             df = pd.DataFrame(all_results)
