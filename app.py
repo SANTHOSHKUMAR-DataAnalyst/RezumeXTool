@@ -1226,14 +1226,14 @@ elif st.session_state.user_type == "general_user":
                 if not resume_text:
                     st.error("❌ Could not extract text. Please upload a searchable PDF.")
                     st.info("💡 Tip: If your resume is scanned, try converting it to a text-based PDF first")
-                    return
+                   
                 
                 # Extract skills
                 skills = extract_skills_from(resume_text)
                 
                 if not skills:
                     st.warning("⚠️ No skills detected. Please check if your resume contains technical/professional skills")
-                    return
+                   
                 
                 # Display results in tabs
                 tab1, tab2, tab3, tab4 = st.tabs(["💼 Job Matches", "🚀 Skills", "📚 Learning", "💰 Salaries"])
