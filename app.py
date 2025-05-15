@@ -1217,7 +1217,7 @@ elif st.session_state.user_type == "general_user":
     st.subheader("Discover your best-fit roles based on your resume")
     
     if st.button("🏠 Back to Home"):
-        set_user_state("welcome")
+        set_user_type("welcome")
     
     with st.container():
         uploaded_file = st.file_uploader("📄 Upload Your Resume (PDF)", 
