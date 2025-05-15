@@ -1,21 +1,16 @@
 import streamlit as st
-from vertexai.generative_models import Part
 import base64
 import io
 from PIL import Image
-import pdf2image
 import google.generativeai as genai
 from dotenv import load_dotenv
 import os
 import pandas as pd
 import re
 import matplotlib.pyplot as plt
-
-import pytesseract
-from pdf2image import convert_from_bytes
-from pypdf import PdfReader
-import pypdf
-import pytesseract
+import pdfplumber  # Pure Python PDF reader
+import fitz  # PyMuPDF for PDF-to-image conversion
+from io import BytesIO
 
 load_dotenv()
 
@@ -111,31 +106,21 @@ def extract_ats_score(response):
 
 #===========================================================================================================================================
 def convert_pdf_to_text(pdf_content):
-    """
-    Convert PDF content to text. If the PDF is scanned, use OCR.
-    """
+    """Handle both text-based and image-based PDFs using pure Python"""
     try:
-        pdf_reader = PdfReader(io.BytesIO(pdf_content))
-        text = ""
-        for page in pdf_reader.pages:
-            try:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-            except Exception as e:
-                st.warning(f"Error extracting text from a page: {e}")
-                continue
-
-        if not text.strip():  # If no text extracted, try OCR
-            st.warning("The PDF appears to be scanned or image-based. Extracting text using OCR...")
-            images = convert_from_bytes(pdf_content)
-            for image in images:
-                text += pytesseract.image_to_string(image) + "\n"
-
-        return text.strip() if text else None
-
+        # First try text extraction with pdfplumber
+        with pdfplumber.open(BytesIO(pdf_content)) as pdf:
+            text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+        
+        if text.strip():
+            return text
+            
+        # If no text, try Gemini Vision for image-based PDFs
+        st.warning("The PDF appears to be scanned or image-based. Extracting text using OCR...")
+        return extract_text_with_gemini(pdf_content)
+        
     except Exception as e:
-        st.error(f"Error reading or processing PDF: {e}. Please check if the file is valid and not encrypted.")
+        st.error(f"PDF processing error: {e}")
         return None
 
 def extract_keywords_missing(response):
@@ -171,20 +156,30 @@ def get_gemini_response(prompt, image_bytes, input_text):
     response = model.generate_content([image_part, prompt], generation_config=genai.GenerationConfig(temperature=0.0))
     return response.text
 
-# ==============================================================================================================================================
-
 def input_pdf_setup(uploaded_file):
     if uploaded_file is not None:
-        images = pdf2image.convert_from_bytes(uploaded_file.read())
-        first_page = images[0]
-        img_byte_arr = io.BytesIO()
-        first_page.save(img_byte_arr, format='JPEG')
-        image_bytes = img_byte_arr.getvalue()
-        return image_bytes
-
-    else:
-        raise FileNotFoundError("NO File Uploaded")
-
+        try:
+            # Get the PDF bytes
+            pdf_bytes = uploaded_file.read()
+            
+            # First try text extraction
+            text = convert_pdf_to_text(pdf_bytes)
+            if text:
+                return text
+                
+            # If text extraction failed, try converting to image for Gemini
+            images = convert_pdf_to_images(pdf_bytes, first_page=1, last_page=1)
+            if images:
+                img_byte_arr = BytesIO()
+                images[0].save(img_byte_arr, format='JPEG')
+                return img_byte_arr.getvalue()
+                
+            return None
+                
+        except Exception as e:
+            st.error(f"Error processing PDF: {e}")
+            return None
+    return None
 # ============================================================================================================================================================================
 
 def extract_information(response):
@@ -230,7 +225,6 @@ def generate_gemini_suggestions(linkedin_text, target_skills, job_description):
     ```
     {job_description}
     ```
-
     Target Skills (for context):
     ```
     {", ".join(target_skills)}
@@ -291,17 +285,6 @@ def analyze_linkedin_text(linkedin_text, target_skills):
     }
 
 # =============================================================================================================================================
-def display_right_side_image(image_path):
-    st.markdown(
-        f"""
-        <div style="position: absolute; top: 0; right: 0; width: 50%; height: 100%; display: flex; justify-content: center; align-items: center;">
-            <img src="{image_path}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-#=============================================================================================================================================
 
 def extract_industries_from_resume(resume_text):
     """
@@ -701,22 +684,6 @@ def suggest_online_courses(job_role):
     }
     return courses.get(job_role, ["No specific courses found for this role."])
 
-# =============================================================================================================================================
-def input_pdf_setup(uploaded_file):  # Define input_pdf_setup
-    if uploaded_file is not None:
-        try:
-            images = pdf2image.convert_from_bytes(uploaded_file.read())
-            first_page = images[0]
-            img_byte_arr = io.BytesIO()
-            first_page.save(img_byte_arr, format='JPEG')
-            image_bytes = img_byte_arr.getvalue()
-            return image_bytes
-        except Exception as e:
-            st.error(f"Error converting PDF to images: {e}")
-            return None
-    else:
-        return None
-
 
 def suggest_salary_expectations(job_role):
     """
@@ -758,8 +725,6 @@ def suggest_salary_expectations(job_role):
     }
 
     return salaries.get(job_role, "Salary data not available for this role.")
-
-
 
 # Streamlit app
 st.set_page_config(page_title="RezumeX", page_icon=":page_facing_up:", layout="wide")
