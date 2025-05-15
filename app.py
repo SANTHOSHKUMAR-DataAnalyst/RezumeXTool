@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import pdfplumber  # Pure Python PDF reader
 import fitz  # PyMuPDF for PDF-to-image conversion
 from io import BytesIO
+from pdf2image import convert_from_bytes
 
 load_dotenv()
 
