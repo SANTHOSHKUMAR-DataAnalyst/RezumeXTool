@@ -146,38 +146,39 @@ def extract_final_thoughts(response):
     except:
         return "Error in final thoughts"
 # ===================================================================================================================================================    
-def get_gemini_response(prompt, image_bytes, input_text):
+def get_gemini_response(prompt, text_data, input_text):
     model = genai.GenerativeModel('gemini-1.5-flash')
-    
-    # Remove this line as image_bytes is already bytes
-    # encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-    
-    # Create the image part directly from the bytes
-    image_part = {
-        "mime_type": "image/jpeg", 
-        "data": image_bytes  # Use the raw bytes directly
-    }
-    
-    response = model.generate_content(
-        [image_part, prompt], 
-        generation_config=genai.GenerationConfig(temperature=0.0)
-    )
+    response = model.generate_content([prompt, text_data])
     return response.text
+            
 def input_pdf_setup(uploaded_file):
     if uploaded_file is not None:
         try:
-            # Read the file content first
-            file_content = uploaded_file.read()
-            images = convert_from_bytes(uploaded_file.read())
-            first_page = images[0]
-            img_byte_arr = io.BytesIO()
-            first_page.save(img_byte_arr, format='JPEG')
-            return img_byte_arr.getvalue()  # This returns bytes
+            # Read PDF bytes
+            pdf_bytes = uploaded_file.read()
+            
+            # Extract text using PyPDF2 (no poppler needed)
+            pdf_reader = PdfReader(io.BytesIO(pdf_bytes))
+            text = ""
+            for page in pdf_reader.pages:
+                text += page.extract_text() + "\n"
+            
+            # If no text extracted (scanned PDF), use pytesseract OCR
+            if not text.strip():
+                st.warning("PDF appears to be scanned. Trying OCR...")
+                try:
+                    images = convert_from_bytes(pdf_bytes)  # Fallback (requires poppler)
+                    for image in images:
+                        text += pytesseract.image_to_string(image) + "\n"
+                except:
+                    st.error("OCR failed. Please upload a searchable PDF.")
+                    return None
+            
+            return text.strip() if text else None
         except Exception as e:
-            st.error(f"Error converting PDF to images: {e}")
+            st.error(f"Error reading PDF: {e}")
             return None
-    else:
-        return None
+    return None
 # ============================================================================================================================================================================
 
 def extract_information(response):
@@ -966,61 +967,134 @@ if st.session_state.user_type == "welcome":
     st.markdown("</div>", unsafe_allow_html=True)
 #=======================================================================================================================================================================================================================================================
 elif st.session_state.user_type == "hr":
-    st.title("HR Dashboard")
+    st.title("📊 HR Dashboard")
+    st.markdown("---")
+    
+    # Input Section
+    col1, col2 = st.columns(2)
+    with col1:
+        input_text = st.text_area("✍️ Enter Job Description:", height=250)
+    with col2:
+        uploaded_files = st.file_uploader("📤 Upload Resumes (PDFs)", 
+                                        type=["pdf"], 
+                                        accept_multiple_files=True)
+    
+    if st.button("🏠 Back to Home"):
+        set_user_type("welcome")
 
-    input_text = st.text_area("Enter Job Description:")
-    uploaded_files = st.file_uploader("Upload Resumes (PDFs)", type=["pdf"], accept_multiple_files=True)
-    if st.button("Back to Home"):
-            set_user_type("welcome")
     if uploaded_files and input_text:
-        num_files = len(uploaded_files)
-        st.write(f"Number of files uploaded: {num_files}")
-
-        if st.button("Analyze Resumes"):
+        st.success(f"✅ {len(uploaded_files)} resumes uploaded for analysis")
+        
+        if st.button("🔍 Analyze Resumes", type="primary"):
             all_results = []
-            with st.spinner("Analyzing resumes..."):
-                for uploaded_file in uploaded_files:
-                    try:
-                        pdf_content = input_pdf_setup(uploaded_file)
-                        response = get_gemini_response(input_prompt3, pdf_content, input_text)
-
-                        print("LLM Response (Raw):", response)  # VERY IMPORTANT: Print the raw LLM response
-
-                        extracted_info = extract_information(response)
-                        print("Extracted Info:", extracted_info)  # Print extracted info
-
-                        all_results.append({"filename": uploaded_file.name, **extracted_info})
-
-                    except Exception as e:
-                        st.error(f"Error analyzing {uploaded_file.name}: {e}")
-
-            all_results.sort(key=lambda x: x["ATS Score"], reverse=True)
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            for i, uploaded_file in enumerate(uploaded_files):
+                try:
+                    # Update progress
+                    progress = (i + 1) / len(uploaded_files)
+                    progress_bar.progress(progress)
+                    status_text.text(f"Analyzing {i+1}/{len(uploaded_files)}: {uploaded_file.name[:30]}...")
+                    
+                    # Process resume
+                    resume_text = input_pdf_setup(uploaded_file)
+                    if not resume_text:
+                        st.warning(f"Skipped {uploaded_file.name}: No text extracted")
+                        continue
+                    
+                    # Get analysis from Gemini
+                    response = get_gemini_response(
+                        prompt=input_prompt3,
+                        text_data=resume_text,
+                        input_text=input_text
+                    )
+                    
+                    # Extract structured information
+                    extracted_info = extract_information(response)
+                    extracted_info["Filename"] = uploaded_file.name
+                    all_results.append(extracted_info)
+                    
+                except Exception as e:
+                    st.error(f"❌ Error analyzing {uploaded_file.name}: {str(e)}")
+            
+            progress_bar.empty()
+            status_text.empty()
+            
+            if not all_results:
+                st.error("No valid results generated")
+                return
+                
+            # Process and display results
             df = pd.DataFrame(all_results)
-
-            st.write("DataFrame:", df)  # VERY IMPORTANT: Print the DataFrame
-
+            
+            # Sort by ATS Score (descending)
             if 'ATS Score' in df.columns:
-                # ATS Score Visualization
-                st.subheader("ATS Score Distribution")
-                fig, ax = plt.subplots()
-                ax.hist(df['ATS Score'], bins=10, edgecolor='black')
-                ax.set_xlabel("ATS Score")
-                ax.set_ylabel("Number of Candidates")
-                st.pyplot(fig)
-
-            # Displaying extracted information
-            for index, row in df.iterrows():
-                st.subheader(f"{row['filename']}")
-                for col in df.columns[1:]:  # Iterate through all columns except filename
-                    st.write(f"{col}: {row[col]}")
-                st.write("---")
+                df.sort_values('ATS Score', ascending=False, inplace=True)
+                
+                # Visualizations
+                st.markdown("---")
+                st.subheader("📈 Analysis Summary")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Top Candidate Score", 
+                             f"{df['ATS Score'].max()}%",
+                             delta=f"{df['ATS Score'].mean():.1f}% avg")
+                    
+                    fig1 = plt.figure()
+                    plt.hist(df['ATS Score'], bins=10, color='skyblue', edgecolor='black')
+                    plt.xlabel("ATS Score (%)")
+                    plt.ylabel("Number of Candidates")
+                    st.pyplot(fig1)
+                
+                with col2:
+                    st.metric("Candidates Analyzed", 
+                             len(df),
+                             delta=f"{len(uploaded_files) - len(df)} failed")
+                    
+                    fig2 = plt.figure()
+                    df['ATS Score'].plot(kind='box', vert=False)
+                    plt.xlabel("ATS Score Distribution")
+                    st.pyplot(fig2)
+                
+                # Detailed Results
+                st.markdown("---")
+                st.subheader("📋 Candidate Breakdown")
+                
+                # Interactive filtering
+                min_score = st.slider("Filter by minimum ATS score", 
+                                     min_value=0, 
+                                     max_value=100,
+                                     value=50)
+                
+                filtered_df = df[df['ATS Score'] >= min_score]
+                st.dataframe(filtered_df.style.highlight_max(subset=['ATS Score'], color='lightgreen'),
+                           use_container_width=True)
+                
+                # Individual candidate details
+                st.markdown("---")
+                st.subheader("🧑‍💼 Candidate Details")
+                
+                selected_file = st.selectbox("Select candidate to view details:",
+                                           filtered_df['Filename'])
+                
+                if selected_file:
+                    candidate_data = df[df['Filename'] == selected_file].iloc[0]
+                    with st.expander(f"Full analysis for {selected_file}"):
+                        for key, value in candidate_data.items():
+                            if key != 'Filename':
+                                st.markdown(f"**{key}**: {value}")
+            
+            else:
+                st.warning("No ATS scores were extracted from the analysis")
 
     elif not input_text and uploaded_files:
-        st.warning("Please enter a job description.")
+        st.warning("⚠️ Please enter a job description")
     elif not uploaded_files and input_text:
-        st.warning("Please upload resumes.")
+        st.warning("⚠️ Please upload resumes")
     elif not uploaded_files and not input_text:
-        st.warning("Please upload resumes and enter a job description.")
+        st.warning("⚠️ Please upload resumes and enter a job description")
 #========================================================================================================================================================================================
 # ------------------------------------------------------------------------------------------------------------------------------------------------ 
 elif st.session_state.user_type == "user_with_job_role":
@@ -1035,58 +1109,72 @@ elif st.session_state.user_type == "user_with_job_role":
     selected_job_role = st.selectbox("Select Job Role:", job_roles)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    input_text = st.text_area("Enter Job Description:")  # Job description input
+    input_text = st.text_area("Enter Job Description:", height=200)
     uploaded_file = st.file_uploader("Upload Your Resume (PDF)...", type=["pdf"])
 
-    if uploaded_file and input_text:  # Check if both files and text are uploaded
-        if st.button("Analyze"):
+    if uploaded_file and input_text:
+        if st.button("Analyze Resume"):
             try:
-                pdf_content = input_pdf_setup(uploaded_file)  # Get image bytes
+                # Extract text directly from PDF (no image conversion)
+                pdf_text = input_pdf_setup(uploaded_file)
+                
+                if not pdf_text:
+                    st.error("Failed to extract text from PDF. Please ensure the file is valid.")
+                    return
 
-                # Prepare the prompt with all information
-                full_prompt = f"""
-                You are an experienced Technical Human Resource Manager with experience in {selected_job_role}. 
-                Your task is to review the provided resume against the following job description:
+                with st.spinner("Analyzing resume..."):
+                    # Prepare the analysis prompt
+                    full_prompt = f"""
+                    You are an experienced HR professional specializing in {selected_job_role}. 
+                    Analyze this resume against the job description below:
 
-                ```
-                {input_text}  # Job Description
-                    GIVE ME THE DETAILED analysis of followings 
-                            ```
-                    (highlight)(visualization)1. **ATS Score (Percentage Match):** Calculate and provide the percentage match of the resume against the job description.  Be explicit with the percentage.  For example: "ATS Score: 85%"
+                    Job Description:
+                    {input_text}
 
-                    2. **Missing Keywords:** List any significant keywords from the job description that are missing from the resume.
+                    Resume Text:
+                    {pdf_text}
 
-                    3. **Missing Skills:** Identify any essential skills mentioned in the job description that are not present in the resume.
+                    Provide detailed analysis covering:
+                    1. ATS Score (Percentage Match) - Show as percentage and visual gauge
+                    2. Missing Keywords (highlight in red)
+                    3. Missing Skills (highlight in yellow) 
+                    4. Resume Improvement Suggestions (bullet points)
+                    5. Skill Development Recommendations
+                    6. Relevant Course Links (as markdown links)
+                    7. Overall Fit Assessment
 
-                    4. **Resume Improvement Suggestions:** Offer specific and actionable suggestions on how the resume can be improved to better align with the job description. This could include formatting, content, or keyword optimization.
+                    Format the output with clear headings and visual elements.
+                    """
 
-                    5. **Skill Improvement Suggestions:** Provide suggestions on how the candidate can improve their skills to meet the job requirements. This could include suggesting relevant courses, projects, or resources.
+                    # Get response from Gemini
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model.generate_content(full_prompt)
+                    
+                    # Display results
+                    st.subheader("Resume Analysis Results")
+                    st.markdown("---")
+                    st.markdown(response.text)
 
-                    6. **Relevant Course Links (with Embedded Photos if Applicable):** If possible, provide links to relevant online courses or resources that can help the candidate improve their skills. If the course platform supports image embedding in the description, you can embed the image. If not, don't worry about it.
-
-                    7. **Overall Remarks:** Provide a concise summary of your overall assessment of the resume and the candidate's fit for the role.  Focus on constructive feedback.  This should *not* be a simple "strengths and weaknesses" summary, but a more nuanced evaluation.
-
-                    Remember to be detailed and specific in your analysis.  Focus on providing actionable advice that the candidate can use to improve their resume and skills."""
-
-
-                response = get_gemini_response(
-                    full_prompt,  # Use the combined prompt
-                    pdf_content, # Resume image bytes
-                    "" # No additional input text needed
-                )
-                st.write(response)
+                    # Optional: Extract and visualize ATS score
+                    try:
+                        ats_score = extract_ats_score(response.text)
+                        if ats_score:
+                            st.subheader("ATS Compatibility Score")
+                            st.progress(ats_score/100)
+                            st.caption(f"{ats_score}% match with job requirements")
+                    except:
+                        pass
 
             except Exception as e:
-                st.error(f"An error occurred: {e}")
+                st.error(f"Analysis failed: {str(e)}")
+                st.exception(e)
 
     elif not input_text and uploaded_file:
-        st.warning("Please enter a job description.")
-
+        st.warning("Please enter a job description to analyze against.")
     elif not uploaded_file and input_text:
-        st.warning("Please upload a resume.")
-
+        st.warning("Please upload your resume PDF for analysis.")
     elif not uploaded_file and not input_text:
-        st.warning("Please upload a resume and enter a job description.")
+        st.warning("Please upload your resume and enter a job description.")
 #===========================================================================================================================================
 elif st.session_state.user_type == "linkedin" :
     st.title("LinkedIn Profile Analyzer")
@@ -1133,47 +1221,109 @@ elif st.session_state.user_type == "linkedin" :
                 # ... (Your existing rule-based suggestions)
                 pass  # You can keep the old suggestions here if you want them as a fallback. 
 
-elif st.session_state.user_type == "general_user":  # General User Section (No longer a function)
-    st.title("RezumeX - User Without Job Role")
-    st.subheader("Rezume Analysis and Career Guidance")
-    if st.button("Back to Home"):
-        set_user_type("welcome") 
-    uploaded_file = st.file_uploader("Upload Your Resume (PDF)...", type=["pdf"])
-
+elif st.session_state.user_type == "general_user":
+    st.title("🎯 Career Path Explorer")
+    st.subheader("Discover your best-fit roles based on your resume")
+    
+    if st.button("🏠 Back to Home"):
+        set_user_state("welcome")
+    
+    with st.container():
+        uploaded_file = st.file_uploader("📄 Upload Your Resume (PDF)", 
+                                       type=["pdf"],
+                                       help="We'll analyze your skills and suggest matching careers")
+    
     if uploaded_file:
-        try:
-            pdf_content = uploaded_file.read()
-            resume_text = convert_pdf_to(pdf_content)
-
-            if resume_text:
+        with st.spinner("🔍 Analyzing your resume..."):
+            try:
+                # Extract text from PDF
+                resume_text = input_pdf_setup(uploaded_file)
+                
+                if not resume_text:
+                    st.error("❌ Could not extract text. Please upload a searchable PDF.")
+                    st.info("💡 Tip: If your resume is scanned, try converting it to a text-based PDF first")
+                    return
+                
+                # Extract skills
                 skills = extract_skills_from(resume_text)
-                st.write(f"**Extracted Skills:** {', '.join(skills)}")
-
-                st.subheader("Suggested Job Roles (Priority Order)")
-                job_roles = suggest_job_roles(skills)
-                for i, role in enumerate(job_roles, 1):
-                    st.write(f"{i}. {role}")
-
-                st.subheader("Trending Technologies")
-                trending_tech = suggest_trending_technologies()
-                for tech in trending_tech:
-                    st.write(f"- {tech}")
-
-                if job_roles:
-                    st.subheader(f"Online Courses for {job_roles[0]}")
-                    courses = suggest_online_courses(job_roles[0])
-                    for course in courses:
-                        st.write(f"- {course}")
-
-                    st.subheader(f"Salary Expectations for {job_roles[0]}")
-                    salary = suggest_salary_expectations(job_roles[0])
-                    st.write(f"- {salary}")
-
-            else:
-                st.error("Could not extract text from the uploaded PDF. Please ensure the PDF is not corrupted or scanned. If it's scanned, OCR might not be perfect.")
-
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
+                
+                if not skills:
+                    st.warning("⚠️ No skills detected. Please check if your resume contains technical/professional skills")
+                    return
+                
+                # Display results in tabs
+                tab1, tab2, tab3, tab4 = st.tabs(["💼 Job Matches", "🚀 Skills", "📚 Learning", "💰 Salaries"])
+                
+                with tab1:
+                    st.subheader("Your Best Career Matches")
+                    job_roles = suggest_job_roles(skills)
+                    
+                    cols = st.columns(3)
+                    for i, role in enumerate(job_roles[:9]):  # Show top 9
+                        with cols[i%3]:
+                            with st.container(border=True):
+                                st.markdown(f"**{i+1}. {role}**")
+                                st.progress(min((10-i)*10, 95))  # Visual ranking indicator
+                
+                with tab2:
+                    st.subheader("Your Skills Analysis")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("#### 🛠️ Technical Skills")
+                        tech_skills = [s for s in skills if s in [
+                            "Python", "Java", "SQL", "Machine Learning", "AWS"]]
+                        for skill in tech_skills:
+                            st.markdown(f"- ✅ {skill}")
+                    
+                    with col2:
+                        st.markdown("#### 🤝 Professional Skills")
+                        soft_skills = [s for s in skills if s in [
+                            "Communication", "Project Management", "Leadership"]]
+                        for skill in soft_skills or ["None detected"]:
+                            st.markdown(f"- ✨ {skill}")
+                    
+                    st.markdown("---")
+                    st.subheader("🔥 Trending Technologies")
+                    trending = suggest_trending_technologies()
+                    st.write("Consider adding these to your skillset:")
+                    for tech in trending:
+                        st.markdown(f"- 🌟 {tech}")
+                
+                with tab3:
+                    if job_roles:
+                        primary_role = job_roles[0]
+                        st.subheader(f"📖 Recommended Learning for {primary_role}")
+                        
+                        courses = suggest_online_courses(primary_role)
+                        for course in courses[:5]:  # Limit to top 5
+                            st.markdown(f"""
+                            <div style="padding:10px;border-radius:5px;background:#f0f2f6;margin:5px">
+                            🎓 **{course}**  
+                            <small>[Find on Google](https://www.google.com/search?q={course.replace(' ','+')})</small>
+                            </div>
+                            """, unsafe_allow_html=True)
+                
+                with tab4:
+                    if job_roles:
+                        st.subheader("💵 Expected Salary Ranges")
+                        
+                        cols = st.columns(3)
+                        for i, role in enumerate(job_roles[:3]):  # Top 3 roles
+                            salary = suggest_salary_expectations(role)
+                            with cols[i]:
+                                with st.container(border=True):
+                                    st.markdown(f"**{role}**")
+                                    st.markdown(f"`{salary}`")
+                                    st.markdown("*Median range*")
+                
+                # Success message
+                st.balloons()
+                st.success("🎉 Analysis complete! Explore the tabs above for personalized recommendations")
+            
+            except Exception as e:
+                st.error(f"❌ Analysis failed: {str(e)}")
+                st.exception(e) if st.toggle("Show technical details") else None
 # Cover Letter Generator Page
 elif st.session_state.user_type == "cover_letter_generator":
     st.title("Cover Letter Generator")
