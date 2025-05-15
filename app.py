@@ -12,6 +12,7 @@ import pdfplumber  # Pure Python PDF reader
 import fitz  # PyMuPDF for PDF-to-image conversion
 from io import BytesIO
 from pdf2image import convert_from_bytes
+from pypdf import PdfReader 
 
 load_dotenv()
 
