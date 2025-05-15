@@ -6,3 +6,4 @@ google-generativeai>=0.3.0
 python-dotenv
 pandas
 matplotlib
+pdf2image
