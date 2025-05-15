@@ -1120,7 +1120,6 @@ elif st.session_state.user_type == "user_with_job_role":
                 if not pdf_text:
                     st.error("Failed to extract text from PDF. Please ensure the file is valid.")
                     st.stop()
-                    return
 
                 with st.spinner("Analyzing resume..."):
                     # Prepare prompt
