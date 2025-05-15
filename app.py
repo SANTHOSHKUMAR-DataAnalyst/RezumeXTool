@@ -1129,9 +1129,13 @@ elif st.session_state.user_type == "user_with_job_role":
                     # Get response with timeout
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     response = model.generate_content(
-                        full_prompt,
-                        generation_config={"timeout": 300}
-                    )
+                full_prompt,
+                generation_config=genai.GenerationConfig(
+                    temperature=0.0,
+                    max_output_tokens=2048
+                ),
+                timeout=300  # External timeout
+            )
                     
                     # Display results
                     st.subheader("Resume Analysis Results")
