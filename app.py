@@ -168,7 +168,7 @@ def input_pdf_setup(uploaded_file):
         try:
             # Read the file content first
             file_content = uploaded_file.read()
-            images = pdf2image.convert_from_bytes(file_content)
+            images = convert_from_bytes(uploaded_file.read())
             first_page = images[0]
             img_byte_arr = io.BytesIO()
             first_page.save(img_byte_arr, format='JPEG')
