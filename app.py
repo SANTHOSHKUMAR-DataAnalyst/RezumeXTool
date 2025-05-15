@@ -1126,16 +1126,15 @@ elif st.session_state.user_type == "user_with_job_role":
                     # Prepare prompt
                     full_prompt = f"""..."""  # Your existing prompt
 
-                    # Get response with timeout
+                    # Get response with proper configuration
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     response = model.generate_content(
-                full_prompt,
-                generation_config=genai.GenerationConfig(
-                    temperature=0.0,
-                    max_output_tokens=2048
-                ),
-                timeout=300  # External timeout
-            )
+                        full_prompt,
+                        generation_config=genai.GenerationConfig(
+                            temperature=0.0,
+                            max_output_tokens=2048
+                        )
+                    )
                     
                     # Display results
                     st.subheader("Resume Analysis Results")
