@@ -938,7 +938,10 @@ job_roles = [
 
 #===========================================================================================================================================
 
-# Conditional Page Display
+def set_user_type(user_type):
+    st.session_state.user_type = user_type
+
+# Then in your welcome section:
 if st.session_state.user_type == "welcome":
     # Welcome Page
     st.markdown("<h1 class='welcome-text'>Welcome To Rezume✘ </h1>", unsafe_allow_html=True)
@@ -947,15 +950,15 @@ if st.session_state.user_type == "welcome":
     # User Type Buttons
     st.markdown("<div class='user-buttons'>", unsafe_allow_html=True)
     if st.button("User (with Job Role)", use_container_width=False):
-        set_user_type("user_with_job_role")
+        set_user_type("user_with_job_role")  # Fixed function name
     if st.button("User (without Job Role)", use_container_width=False):
-        set_user_type("general_user")
+        set_user_type("general_user")  # Fixed function name
     if st.button("HR", use_container_width=False):
-        set_user_type("hr")
+        set_user_type("hr")  # Fixed function name
     if st.button("Linkedin Analyser ", use_container_width=False):
-        set_user_type("linkedin")
+        set_user_type("linkedin")  # Fixed function name
     if st.button("Cover Letter Generator", use_container_width=False):
-        set_user_type("cover_letter_generator")
+        set_user_type("cover_letter_generator")  # Fixed function name
     st.markdown("</div>", unsafe_allow_html=True)
 
     # Welcome Content
